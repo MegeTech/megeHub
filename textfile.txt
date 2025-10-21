@@ -1,0 +1,334 @@
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+
+local player = Players.LocalPlayer
+if not player then
+    warn("Could not find LocalPlayer.")
+    return
+end
+
+local savedLocation = nil
+
+local isPhasing = false
+local noclipConnection = nil
+local noclipSpeed = 2
+
+local isAntiTeleportActive = false
+local antiTeleportConnection = nil
+local lastGoodCFrame = CFrame.new()
+local antiTeleportThreshold = 25
+local allowNextTeleport = false
+
+local function getCharacter()
+    local char = player.Character or player.CharacterAdded:Wait()
+    if not char or not char.Parent then return nil, nil, nil end
+    local humanoid = char:FindFirstChildOfClass("Humanoid")
+    local humanoidRootPart = char:FindFirstChild("HumanoidRootPart")
+    return char, humanoid, humanoidRootPart
+end
+
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "megeHub"
+screenGui.ResetOnSpawn = false
+screenGui.Parent = player:WaitForChild("PlayerGui")
+
+local loadingFrame = Instance.new("Frame")
+loadingFrame.Name = "LoadingFrame"
+loadingFrame.Size = UDim2.new(1, 0, 1, 0)
+loadingFrame.BackgroundColor3 = Color3.fromRGB(24, 25, 29)
+loadingFrame.ZIndex = 10
+loadingFrame.Parent = screenGui
+
+local loadingTitle = Instance.new("TextLabel")
+loadingTitle.Name = "LoadingTitle"
+loadingTitle.Size = UDim2.new(1, 0, 0, 50)
+loadingTitle.Position = UDim2.new(0.5, 0, 0.5, -25)
+loadingTitle.AnchorPoint = Vector2.new(0.5, 0.5)
+loadingTitle.Text = "megeHub"
+loadingTitle.Font = Enum.Font.SourceSansSemibold
+loadingTitle.TextSize = 32
+loadingTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
+loadingTitle.BackgroundTransparency = 1
+loadingTitle.Parent = loadingFrame
+
+local loadingSubtitle = Instance.new("TextLabel")
+loadingSubtitle.Name = "LoadingSubtitle"
+loadingSubtitle.Size = UDim2.new(1, 0, 0, 30)
+loadingSubtitle.Position = UDim2.new(0.5, 0, 0.5, 10)
+loadingSubtitle.AnchorPoint = Vector2.new(0.5, 0.5)
+loadingSubtitle.Text = "Loading..."
+loadingSubtitle.Font = Enum.Font.SourceSans
+loadingSubtitle.TextSize = 18
+loadingSubtitle.TextColor3 = Color3.fromRGB(200, 200, 200)
+loadingSubtitle.BackgroundTransparency = 1
+loadingSubtitle.Parent = loadingFrame
+
+local mainFrame = Instance.new("Frame")
+mainFrame.Name = "MainFrame"
+mainFrame.Size = UDim2.new(0, 200, 0, 200) 
+mainFrame.Position = UDim2.new(1, -220, 1, -220) 
+mainFrame.BackgroundColor3 = Color3.fromRGB(31, 31, 31)
+mainFrame.BorderSizePixel = 0
+mainFrame.Active = true
+mainFrame.Draggable = true
+mainFrame.Visible = false
+mainFrame.Parent = screenGui
+
+local uiCorner = Instance.new("UICorner")
+uiCorner.CornerRadius = UDim.new(0, 8)
+uiCorner.Parent = mainFrame
+
+local titleLabel = Instance.new("TextLabel")
+titleLabel.Name = "TitleLabel"
+titleLabel.Size = UDim2.new(1, 0, 0, 30)
+titleLabel.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+titleLabel.Text = "megeHub"
+titleLabel.Font = Enum.Font.SourceSansBold
+titleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+titleLabel.TextSize = 16
+titleLabel.Parent = mainFrame
+
+local titleCorner = Instance.new("UICorner")
+titleCorner.CornerRadius = UDim.new(0, 8)
+titleCorner.Parent = titleLabel
+
+local statusLabel = Instance.new("TextLabel")
+statusLabel.Name = "StatusLabel"
+statusLabel.Size = UDim2.new(1, -20, 0, 20)
+statusLabel.Position = UDim2.new(0, 10, 0, 35)
+statusLabel.BackgroundColor3 = Color3.fromRGB(31, 31, 31)
+statusLabel.BackgroundTransparency = 1
+statusLabel.Text = "No location saved."
+statusLabel.Font = Enum.Font.SourceSans
+statusLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+statusLabel.TextSize = 14
+statusLabel.TextXAlignment = Enum.TextXAlignment.Left
+statusLabel.Parent = mainFrame
+
+local function showStatus(message, isError)
+    statusLabel.Text = message
+    if isError then
+        statusLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
+    else
+        statusLabel.TextColor3 = Color3.fromRGB(120, 255, 120)
+    end
+    
+    task.wait(3)
+    if statusLabel.Text == message then
+        statusLabel.Text = "..."
+        statusLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+    end
+end
+
+local saveButton = Instance.new("TextButton")
+saveButton.Name = "SaveButton"
+saveButton.Size = UDim2.new(0, 85, 0, 30)
+saveButton.Position = UDim2.new(0, 10, 0, 70)
+saveButton.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+saveButton.Text = "Save"
+saveButton.Font = Enum.Font.SourceSansBold
+saveButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+saveButton.TextSize = 16
+saveButton.Parent = mainFrame
+
+local saveCorner = Instance.new("UICorner")
+saveCorner.CornerRadius = UDim.new(0, 6)
+saveCorner.Parent = saveButton
+
+local teleportButton = Instance.new("TextButton")
+teleportButton.Name = "TeleportButton"
+teleportButton.Size = UDim2.new(0, 85, 0, 30)
+teleportButton.Position = UDim2.new(0, 105, 0, 70)
+teleportButton.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+teleportButton.Text = "Teleport"
+teleportButton.Font = Enum.Font.SourceSansBold
+teleportButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+teleportButton.TextSize = 16
+teleportButton.Parent = mainFrame
+
+local teleportCorner = Instance.new("UICorner")
+teleportCorner.CornerRadius = UDim.new(0, 6)
+teleportCorner.Parent = teleportButton
+
+local color_Off = Color3.fromRGB(80, 80, 80)
+local color_On = Color3.fromRGB(67, 188, 114)
+
+local noclipButton = Instance.new("TextButton")
+noclipButton.Name = "NoclipButton"
+noclipButton.Size = UDim2.new(1, -20, 0, 30)
+noclipButton.Position = UDim2.new(0, 10, 0, 110)
+noclipButton.BackgroundColor3 = color_Off
+noclipButton.Text = "Noclip (OFF)"
+noclipButton.Font = Enum.Font.SourceSansBold
+noclipButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+noclipButton.TextSize = 16
+noclipButton.Parent = mainFrame
+
+local noclipCorner = Instance.new("UICorner")
+noclipCorner.CornerRadius = UDim.new(0, 6)
+noclipCorner.Parent = noclipButton
+
+local antiTeleportButton = Instance.new("TextButton")
+antiTeleportButton.Name = "AntiTeleportButton"
+antiTeleportButton.Size = UDim2.new(1, -20, 0, 30)
+antiTeleportButton.Position = UDim2.new(0, 10, 0, 150)
+antiTeleportButton.BackgroundColor3 = color_Off
+antiTeleportButton.Text = "Anti-Teleport (OFF)"
+antiTeleportButton.Font = Enum.Font.SourceSansBold
+antiTeleportButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+antiTeleportButton.TextSize = 16
+antiTeleportButton.Parent = mainFrame
+
+local antiTpCorner = Instance.new("UICorner")
+antiTpCorner.CornerRadius = UDim.new(0, 6)
+antiTpCorner.Parent = antiTeleportButton
+
+saveButton.MouseButton1Click:Connect(function()
+    local _, _, hrp = getCharacter()
+    if hrp then
+        savedLocation = hrp.CFrame
+        print("Location saved to:", savedLocation)
+        showStatus("Location saved!", false)
+    else
+        warn("Player character or HumanoidRootPart not found.")
+        showStatus("Could not save location.", true)
+    end
+end)
+
+teleportButton.MouseButton1Click:Connect(function()
+    if savedLocation then
+        local character, _, hrp = getCharacter()
+        if character and hrp then
+            
+            allowNextTeleport = true
+            hrp.CFrame = savedLocation
+            task.wait()
+            allowNextTeleport = false
+            
+            print("Teleported to:", savedLocation)
+            showStatus("Teleported!", false)
+        else
+            warn("Player character or HumanoidRootPart not found.")
+            showStatus("Could not teleport.", true)
+        end
+    else
+        warn("No location has been saved yet.")
+        showStatus("No location saved yet.", true)
+    end
+end)
+
+noclipButton.MouseButton1Click:Connect(function()
+    isPhasing = not isPhasing
+    noclipButton.Text = "Noclip " .. (isPhasing and "(ON)" or "(OFF)")
+    noclipButton.BackgroundColor3 = isPhasing and color_On or color_Off
+    
+    if isPhasing then
+        if noclipConnection then noclipConnection:Disconnect() end
+        noclipConnection = RunService.Heartbeat:Connect(function()
+            local character, humanoid, rootPart = getCharacter()
+            if not character or not humanoid or not rootPart or not isPhasing then 
+                if noclipConnection then noclipConnection:Disconnect() end
+                return 
+            end
+            for _, part in ipairs(character:GetDescendants()) do
+                if part:IsA("BasePart") then part.CanCollide = false end
+            end
+            humanoid:ChangeState(Enum.HumanoidStateType.Running)
+            local moveVector = Vector3.new()
+            if UserInputService:IsKeyDown(Enum.KeyCode.W) then moveVector = moveVector + Vector3.new(0, 0, -1) end
+            if UserInputService:IsKeyDown(Enum.KeyCode.S) then moveVector = moveVector + Vector3.new(0, 0, 1) end
+            if UserInputService:IsKeyDown(Enum.KeyCode.A) then moveVector = moveVector + Vector3.new(-1, 0, 0) end
+            if UserInputService:IsKeyDown(Enum.KeyCode.D) then moveVector = moveVector + Vector3.new(1, 0, 0) end
+            if UserInputService:IsKeyDown(Enum.KeyCode.Space) or UserInputService:IsKeyDown(Enum.KeyCode.E) then moveVector = moveVector + Vector3.new(0, 1, 0) end
+            if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) or UserInputService:IsKeyDown(Enum.KeyCode.Q) then moveVector = moveVector + Vector3.new(0, -1, 0) end
+            
+            local cameraCFrame = workspace.CurrentCamera.CFrame
+            if moveVector.Magnitude > 0 then
+                rootPart.Velocity = cameraCFrame:VectorToWorldSpace(moveVector.Unit) * noclipSpeed * 50
+            else
+                rootPart.Velocity = Vector3.new(0,0,0)
+            end
+        end)
+    else
+        if noclipConnection then noclipConnection:Disconnect() end
+        noclipConnection = nil
+        local char, hum, hrp = getCharacter()
+        if not char or not hum or not hrp then return end
+        hrp.Velocity = Vector3.new(0, 0, 0)
+        for _, part in ipairs(char:GetDescendants()) do
+            if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then part.CanCollide = true end
+        end
+        hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+    end
+end)
+
+antiTeleportButton.MouseButton1Click:Connect(function()
+    isAntiTeleportActive = not isAntiTeleportActive
+    antiTeleportButton.Text = "Anti-Teleport " .. (isAntiTeleportActive and "(ON)" or "(OFF)")
+    antiTeleportButton.BackgroundColor3 = isAntiTeleportActive and color_On or color_Off
+    
+    if isAntiTeleportActive then
+        local _, _, hrp = getCharacter()
+        if not hrp then 
+            showStatus("Character not found!", true)
+            isAntiTeleportActive = false
+            antiTeleportButton.Text = "Anti-Teleport (OFF)"
+            antiTeleportButton.BackgroundColor3 = color_Off
+            return 
+        end
+        lastGoodCFrame = hrp.CFrame
+        
+        if antiTeleportConnection then antiTeleportConnection:Disconnect() end
+        antiTeleportConnection = RunService.Stepped:Connect(function()
+            local character, _, currentHRP = getCharacter()
+            if not character or not currentHRP or not isAntiTeleportActive then
+                if antiTeleportConnection then antiTeleportConnection:Disconnect() end
+                return
+            end
+            
+            local movedDistance = (currentHRP.CFrame.Position - lastGoodCFrame.Position).Magnitude
+            if movedDistance > antiTeleportThreshold and not allowNextTeleport then
+                character:PivotTo(lastGoodCFrame)
+            else
+                lastGoodCFrame = currentHRP.CFrame
+            end
+        end)
+    else
+        if antiTeleportConnection then antiTeleportConnection:Disconnect() end
+        antiTeleportConnection = nil
+    end
+end)
+
+player.CharacterAdded:Connect(function(character)
+    if isAntiTeleportActive then
+        task.wait(0.1)
+        local _, _, hrp = getCharacter()
+        if hrp then
+            lastGoodCFrame = hrp.CFrame
+        end
+    end
+end)
+
+print("megeHub script initialized. Waiting for load...")
+
+local fadeTime = 0.5
+local loadTime = 2.5
+
+task.wait(loadTime)
+
+local fadeOutFrame = TweenService:Create(loadingFrame, TweenInfo.new(fadeTime), {BackgroundTransparency = 1})
+local fadeOutTitle = TweenService:Create(loadingTitle, TweenInfo.new(fadeTime), {TextTransparency = 1})
+local fadeOutSub = TweenService:Create(loadingSubtitle, TweenInfo.new(fadeTime), {TextTransparency = 1})
+
+fadeOutFrame:Play()
+fadeOutTitle:Play()
+fadeOutSub:Play()
+
+fadeOutFrame.Completed:Wait()
+
+mainFrame.Visible = true
+loadingFrame:Destroy()
+
+print("megeHub UI loaded and visible.")
