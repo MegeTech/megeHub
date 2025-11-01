@@ -1,16 +1,34 @@
+--[[
+    megeHub UI Refactor
+    - Improved colors, layout, and typography.
+    - Added hover effects for buttons.
+    - Re-organized layout using UIListLayout for easier maintenance.
+    - Added a pulsing animation to the loading screen text.
+]]
+
+-- Services
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 
+-- Local Player & Character
 local player = Players.LocalPlayer
 if not player then
-    warn("Could not find LocalPlayer.")
+    warn("megeHub: Could not find LocalPlayer.")
     return
 end
 
-local savedLocation = nil
+local function getCharacter()
+    local char = player.Character or player.CharacterAdded:Wait()
+    if not char or not char.Parent then return nil, nil, nil end
+    local humanoid = char:FindFirstChildOfClass("Humanoid")
+    local humanoidRootPart = char:FindFirstChild("HumanoidRootPart")
+    return char, humanoid, humanoidRootPart
+end
 
+-- Core Variables
+local savedLocation = nil
 local isPhasing = false
 local noclipConnection = nil
 local noclipSpeed = 2
@@ -21,30 +39,46 @@ local lastGoodCFrame = CFrame.new()
 local antiTeleportThreshold = 25
 local allowNextTeleport = false
 
-local function getCharacter()
-    local char = player.Character or player.CharacterAdded:Wait()
-    if not char or not char.Parent then return nil, nil, nil end
-    local humanoid = char:FindFirstChildOfClass("Humanoid")
-    local humanoidRootPart = char:FindFirstChild("HumanoidRootPart")
-    return char, humanoid, humanoidRootPart
-end
+-- UI Theme Colors
+local color_Background = Color3.fromRGB(28, 28, 32)
+local color_TitleBar = Color3.fromRGB(120, 80, 220) -- Accent color
+local color_Base = Color3.fromRGB(45, 45, 52)
+local color_Hover = Color3.fromRGB(65, 65, 72)
+local color_Off = color_Base
+local color_On = Color3.fromRGB(67, 188, 114)
+local color_Text = Color3.fromRGB(255, 255, 255)
+local color_TextStatus = Color3.fromRGB(200, 200, 200)
+local color_TextSuccess = Color3.fromRGB(120, 255, 120)
+local color_TextError = Color3.fromRGB(255, 100, 100)
 
+-- UI Fonts
+local font_Title = Enum.Font.GothamSemibold
+local font_Body = Enum.Font.Gotham
+local font_Button = Enum.Font.GothamSemibold
+
+-- Tween Info
+local tweenInfo_Hover = TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+
+-- Main GUI
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "megeHub"
 screenGui.ResetOnSpawn = false
 screenGui.Parent = player:WaitForChild("PlayerGui")
 
+-- ==================
+-- LOADING FRAME
+-- ==================
 local loadingFrame = Instance.new("Frame")
 loadingFrame.Name = "LoadingFrame"
-loadingFrame.Size = UDim2.new(0, 200, 0, 100)
-loadingFrame.Position = UDim2.new(0.5, -100, 0.5, -50)
-loadingFrame.BackgroundColor3 = Color3.fromRGB(31, 31, 31)
+loadingFrame.Size = UDim2.new(0, 220, 0, 100)
+loadingFrame.Position = UDim2.new(0.5, -110, 0.5, -50)
+loadingFrame.BackgroundColor3 = color_Background
 loadingFrame.BorderSizePixel = 0
 loadingFrame.ZIndex = 10
 loadingFrame.Parent = screenGui
 
 local loadingCorner = Instance.new("UICorner")
-loadingCorner.CornerRadius = UDim.new(0, 8)
+loadingCorner.CornerRadius = UDim.new(0, 12)
 loadingCorner.Parent = loadingFrame
 
 local loadingTitle = Instance.new("TextLabel")
@@ -53,17 +87,25 @@ loadingTitle.Size = UDim2.new(1, 0, 1, 0)
 loadingTitle.Position = UDim2.new(0.5, 0, 0.5, 0)
 loadingTitle.AnchorPoint = Vector2.new(0.5, 0.5)
 loadingTitle.Text = "megeHub."
-loadingTitle.Font = Enum.Font.SourceSansSemibold
-loadingTitle.TextSize = 32
-loadingTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
+loadingTitle.Font = font_Title
+loadingTitle.TextSize = 36
+loadingTitle.TextColor3 = color_Text
 loadingTitle.BackgroundTransparency = 1
 loadingTitle.Parent = loadingFrame
 
+-- Loading animation
+local pulseInfo = TweenInfo.new(1, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut, 0, true, 0)
+local loadingPulse = TweenService:Create(loadingTitle, pulseInfo, {TextTransparency = 0.5})
+loadingPulse:Play()
+
+-- ==================
+-- MAIN FRAME
+-- ==================
 local mainFrame = Instance.new("Frame")
 mainFrame.Name = "MainFrame"
-mainFrame.Size = UDim2.new(0, 200, 0, 200) 
-mainFrame.Position = UDim2.new(1, -220, 1, -220) 
-mainFrame.BackgroundColor3 = Color3.fromRGB(31, 31, 31)
+mainFrame.Size = UDim2.new(0, 260, 0, 240) 
+mainFrame.Position = UDim2.new(1, -280, 1, -260) 
+mainFrame.BackgroundColor3 = color_Background
 mainFrame.BorderSizePixel = 0
 mainFrame.Active = true
 mainFrame.Draggable = true
@@ -71,113 +113,200 @@ mainFrame.Visible = false
 mainFrame.Parent = screenGui
 
 local uiCorner = Instance.new("UICorner")
-uiCorner.CornerRadius = UDim.new(0, 8)
+uiCorner.CornerRadius = UDim.new(0, 12)
 uiCorner.Parent = mainFrame
 
+-- Title Bar
 local titleLabel = Instance.new("TextLabel")
 titleLabel.Name = "TitleLabel"
-titleLabel.Size = UDim2.new(1, 0, 0, 30)
-titleLabel.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
-titleLabel.Text = "megeHub"
-titleLabel.Font = Enum.Font.SourceSansBold
-titleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-titleLabel.TextSize = 16
+titleLabel.Size = UDim2.new(1, 0, 0, 36)
+titleLabel.BackgroundColor3 = color_TitleBar
+titleLabel.Text = "  megeHub."
+titleLabel.Font = font_Title
+titleLabel.TextColor3 = color_Text
+titleLabel.TextSize = 18
+titleLabel.TextXAlignment = Enum.TextXAlignment.Left
 titleLabel.Parent = mainFrame
 
 local titleCorner = Instance.new("UICorner")
-titleCorner.CornerRadius = UDim.new(0, 8)
+titleCorner.CornerRadius = UDim.new(0, 12)
 titleCorner.Parent = titleLabel
 
+local titleBottomFade = Instance.new("UIGradient")
+titleBottomFade.Transparency = NumberSequence.new({
+    NumberSequenceKeypoint.new(0, 0),
+    NumberSequenceKeypoint.new(0.8, 0),
+    NumberSequenceKeypoint.new(1, 1)
+})
+titleBottomFade.Parent = titleLabel
+
+-- Status Label
 local statusLabel = Instance.new("TextLabel")
 statusLabel.Name = "StatusLabel"
 statusLabel.Size = UDim2.new(1, -20, 0, 20)
-statusLabel.Position = UDim2.new(0, 10, 0, 35)
-statusLabel.BackgroundColor3 = Color3.fromRGB(31, 31, 31)
+statusLabel.Position = UDim2.new(0, 10, 0, 42)
+statusLabel.BackgroundColor3 = color_Background
 statusLabel.BackgroundTransparency = 1
-statusLabel.Text = "No location saved."
-statusLabel.Font = Enum.Font.SourceSans
-statusLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+statusLabel.Text = "Status: No location saved."
+statusLabel.Font = font_Body
+statusLabel.TextColor3 = color_TextStatus
 statusLabel.TextSize = 14
 statusLabel.TextXAlignment = Enum.TextXAlignment.Left
 statusLabel.Parent = mainFrame
 
+-- Status Update Function
 local function showStatus(message, isError)
-    statusLabel.Text = message
-    if isError then
-        statusLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
-    else
-        statusLabel.TextColor3 = Color3.fromRGB(120, 255, 120)
+    statusLabel.Text = "Status: " .. message
+    if isError == true then
+        statusLabel.TextColor3 = color_TextError
+    elseif isError == false then
+        statusLabel.TextColor3 = color_TextSuccess
+    else -- Neutral
+        statusLabel.TextColor3 = color_TextStatus
     end
     
     task.wait(3)
-    if statusLabel.Text == message then
-        statusLabel.Text = "..."
-        statusLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+    if statusLabel.Text == "Status: " .. message then
+        statusLabel.Text = "Status: ..."
+        statusLabel.TextColor3 = color_TextStatus
     end
 end
 
+-- ==================
+-- BUTTONS
+-- ==================
+
+-- Container for buttons to auto-layout
+local buttonContainer = Instance.new("Frame")
+buttonContainer.Name = "ButtonContainer"
+buttonContainer.Size = UDim2.new(1, -20, 1, -74) -- Fill space below status
+buttonContainer.Position = UDim2.new(0, 10, 0, 64)
+buttonContainer.BackgroundTransparency = 1
+buttonContainer.Parent = mainFrame
+
+local buttonLayout = Instance.new("UIListLayout")
+buttonLayout.FillDirection = Enum.FillDirection.Vertical
+buttonLayout.Padding = UDim.new(0, 8)
+buttonLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+buttonLayout.Parent = buttonContainer
+
+-- Save/Teleport Row
+local saveTeleportRow = Instance.new("Frame")
+saveTeleportRow.Name = "SaveTeleportRow"
+saveTeleportRow.Size = UDim2.new(1, 0, 0, 34)
+saveTeleportRow.BackgroundTransparency = 1
+saveTeleportRow.Parent = buttonContainer
+
+local rowLayout = Instance.new("UIListLayout")
+rowLayout.FillDirection = Enum.FillDirection.Horizontal
+rowLayout.Padding = UDim.new(0, 8)
+rowLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+rowLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+rowLayout.Parent = saveTeleportRow
+
+-- Save Button
 local saveButton = Instance.new("TextButton")
 saveButton.Name = "SaveButton"
-saveButton.Size = UDim2.new(0, 85, 0, 30)
-saveButton.Position = UDim2.new(0, 10, 0, 70)
-saveButton.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+saveButton.Size = UDim2.new(0.5, -4, 1, 0)
+saveButton.BackgroundColor3 = color_Base
 saveButton.Text = "Save"
-saveButton.Font = Enum.Font.SourceSansBold
-saveButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+saveButton.Font = font_Button
+saveButton.TextColor3 = color_Text
 saveButton.TextSize = 16
-saveButton.Parent = mainFrame
+saveButton.Parent = saveTeleportRow
 
 local saveCorner = Instance.new("UICorner")
 saveCorner.CornerRadius = UDim.new(0, 6)
 saveCorner.Parent = saveButton
 
+-- Teleport Button
 local teleportButton = Instance.new("TextButton")
 teleportButton.Name = "TeleportButton"
-teleportButton.Size = UDim2.new(0, 85, 0, 30)
-teleportButton.Position = UDim2.new(0, 105, 0, 70)
-teleportButton.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+teleportButton.Size = UDim2.new(0.5, -4, 1, 0)
+teleportButton.BackgroundColor3 = color_Base
 teleportButton.Text = "Teleport"
-teleportButton.Font = Enum.Font.SourceSansBold
-teleportButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+teleportButton.Font = font_Button
+teleportButton.TextColor3 = color_Text
 teleportButton.TextSize = 16
-teleportButton.Parent = mainFrame
+teleportButton.Parent = saveTeleportRow
 
 local teleportCorner = Instance.new("UICorner")
 teleportCorner.CornerRadius = UDim.new(0, 6)
 teleportCorner.Parent = teleportButton
 
-local color_Off = Color3.fromRGB(80, 80, 80)
-local color_On = Color3.fromRGB(67, 188, 114)
-
+-- Noclip Button
 local noclipButton = Instance.new("TextButton")
 noclipButton.Name = "NoclipButton"
-noclipButton.Size = UDim2.new(1, -20, 0, 30)
-noclipButton.Position = UDim2.new(0, 10, 0, 110)
+noclipButton.Size = UDim2.new(1, 0, 0, 34)
 noclipButton.BackgroundColor3 = color_Off
 noclipButton.Text = "Noclip (OFF)"
-noclipButton.Font = Enum.Font.SourceSansBold
-noclipButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+noclipButton.Font = font_Button
+noclipButton.TextColor3 = color_Text
 noclipButton.TextSize = 16
-noclipButton.Parent = mainFrame
+noclipButton.Parent = buttonContainer
 
 local noclipCorner = Instance.new("UICorner")
 noclipCorner.CornerRadius = UDim.new(0, 6)
 noclipCorner.Parent = noclipButton
 
+-- Anti-Teleport Button
 local antiTeleportButton = Instance.new("TextButton")
 antiTeleportButton.Name = "AntiTeleportButton"
-antiTeleportButton.Size = UDim2.new(1, -20, 0, 30)
-antiTeleportButton.Position = UDim2.new(0, 10, 0, 150)
+antiTeleportButton.Size = UDim2.new(1, 0, 0, 34)
 antiTeleportButton.BackgroundColor3 = color_Off
 antiTeleportButton.Text = "Anti-Teleport (OFF)"
-antiTeleportButton.Font = Enum.Font.SourceSansBold
-antiTeleportButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+antiTeleportButton.Font = font_Button
+antiTeleportButton.TextColor3 = color_Text
 antiTeleportButton.TextSize = 16
-antiTeleportButton.Parent = mainFrame
+antiTeleportButton.Parent = buttonContainer
 
 local antiTpCorner = Instance.new("UICorner")
 antiTpCorner.CornerRadius = UDim.new(0, 6)
 antiTpCorner.Parent = antiTeleportButton
+
+-- ==================
+-- BUTTON HOVER EFFECTS
+-- ==================
+saveButton.MouseEnter:Connect(function() 
+    TweenService:Create(saveButton, tweenInfo_Hover, {BackgroundColor3 = color_Hover}):Play() 
+end)
+saveButton.MouseLeave:Connect(function() 
+    TweenService:Create(saveButton, tweenInfo_Hover, {BackgroundColor3 = color_Base}):Play() 
+end)
+
+teleportButton.MouseEnter:Connect(function() 
+    TweenService:Create(teleportButton, tweenInfo_Hover, {BackgroundColor3 = color_Hover}):Play() 
+end)
+teleportButton.MouseLeave:Connect(function() 
+    TweenService:Create(teleportButton, tweenInfo_Hover, {BackgroundColor3 = color_Base}):Play() 
+end)
+
+noclipButton.MouseEnter:Connect(function() 
+    if not isPhasing then 
+        TweenService:Create(noclipButton, tweenInfo_Hover, {BackgroundColor3 = color_Hover}):Play() 
+    end 
+end)
+noclipButton.MouseLeave:Connect(function() 
+    if not isPhasing then 
+        TweenService:Create(noclipButton, tweenInfo_Hover, {BackgroundColor3 = color_Base}):Play() 
+    end 
+end)
+
+antiTeleportButton.MouseEnter:Connect(function() 
+    if not isAntiTeleportActive then 
+        TweenService:Create(antiTeleportButton, tweenInfo_Hover, {BackgroundColor3 = color_Hover}):Play() 
+    end 
+end)
+antiTeleportButton.MouseLeave:Connect(function() 
+    if not isAntiTeleportActive then 
+        TweenService:Create(antiTeleportButton, tweenInfo_Hover, {BackgroundColor3 = color_Base}):Play() 
+    end 
+end)
+
+
+-- ==================
+-- BUTTON LOGIC
+-- ==================
 
 saveButton.MouseButton1Click:Connect(function()
     local _, _, hrp = getCharacter()
@@ -295,6 +424,10 @@ antiTeleportButton.MouseButton1Click:Connect(function()
     end
 end)
 
+-- ==================
+-- CHARACTER & LOAD LOGIC
+-- ==================
+
 player.CharacterAdded:Connect(function(character)
     if isAntiTeleportActive then
         task.wait(0.1)
@@ -307,11 +440,16 @@ end)
 
 print("megeHub script initialized. Waiting for load...")
 
+-- Load sequence
 local fadeTime = 0.5
 local loadTime = 2.5
 
 task.wait(loadTime)
 
+-- Stop loading animation
+loadingPulse:Cancel()
+
+-- Fade out loading screen
 local fadeOutFrame = TweenService:Create(loadingFrame, TweenInfo.new(fadeTime), {BackgroundTransparency = 1})
 local fadeOutTitle = TweenService:Create(loadingTitle, TweenInfo.new(fadeTime), {TextTransparency = 1})
 
@@ -320,7 +458,9 @@ fadeOutTitle:Play()
 
 fadeOutFrame.Completed:Wait()
 
+-- Show main UI
 mainFrame.Visible = true
 loadingFrame:Destroy()
 
 print("megeHub UI loaded and visible.")
+
